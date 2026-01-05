@@ -153,7 +153,7 @@ OPEN SKILL LOADED
 Skill name:
   ${skillName}
 
-Base directory (IMPORTANT):
+(IMPORTANT) BASE_DIR:
   ${baseDir}
 
 ----------------------------------------
