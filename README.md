@@ -14,7 +14,7 @@
 ```json
 {
   "mcpServers": {
-    "powershell-exec": {
+    "openskills": {
       "command": "node",
       "args": [
         "path/to/file/openskills-mcp/openskills.js"

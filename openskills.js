@@ -1,50 +1,44 @@
 #!/usr/bin/env node
 /**
- * OpenSkills MCP Server (Minimal + Correct Spec)
+ * OpenSkills MCP Server (Minimal + run_cmd)
  *
- * - Uses `openskills read <skill-name>` as the single source of truth
- * - Extracts Base directory from command output
- * - Returns explicit AI instructions in tool response
- * - Supports MCP tools correctly
+ * - load_skill: uses `openskills read <skill>`
+ * - run_cmd: execute shell command and return stdout/stderr
  */
 
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { execSync } from "child_process";
+import { execSync, spawn } from "child_process";
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
-    ListToolsRequestSchema,
-    CallToolRequestSchema
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
 /* -------------------------------------------------- */
-/* Simple cache (optional, local) */
+/* Simple local cache (optional) */
 /* -------------------------------------------------- */
 
-const CACHE_FILE = path.join(
-    os.homedir(),
-    ".openskills-mcp-cache.json"
-);
-
+const CACHE_FILE = path.join(os.homedir(), ".openskills-mcp-cache.json");
 let skillCache = new Map();
 
 if (fs.existsSync(CACHE_FILE)) {
-    try {
-        const raw = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
-        skillCache = new Map(Object.entries(raw));
-    } catch {
-        skillCache = new Map();
-    }
+  try {
+    const raw = JSON.parse(fs.readFileSync(CACHE_FILE, "utf-8"));
+    skillCache = new Map(Object.entries(raw));
+  } catch {
+    skillCache = new Map();
+  }
 }
 
 function saveCache() {
-    fs.writeFileSync(
-        CACHE_FILE,
-        JSON.stringify(Object.fromEntries(skillCache), null, 2)
-    );
+  fs.writeFileSync(
+    CACHE_FILE,
+    JSON.stringify(Object.fromEntries(skillCache), null, 2)
+  );
 }
 
 /* -------------------------------------------------- */
@@ -52,37 +46,31 @@ function saveCache() {
 /* -------------------------------------------------- */
 
 function loadSkillViaOpenSkills(skillName) {
-    console.error(`[Load] openskills read ${skillName}`);
+  console.error(`[Load] openskills read ${skillName}`);
 
-    const output = execSync(`openskills read ${skillName}`, {
-        encoding: "utf-8",
-        maxBuffer: 10 * 1024 * 1024
-    });
+  const output = execSync(`openskills read ${skillName}`, {
+    encoding: "utf-8",
+    maxBuffer: 10 * 1024 * 1024,
+  });
 
-    const match = output.match(/^Base directory:\s*(.+)$/m);
-    if (!match) {
-        throw new Error("Could not parse Base directory from openskills output");
-    }
+  const match = output.match(/^Base directory:\s*(.+)$/m);
+  if (!match) {
+    throw new Error("Could not parse Base directory from openskills output");
+  }
 
-    const baseDir = match[1].trim();
+  const baseDir = match[1].trim();
+  if (!fs.existsSync(baseDir)) {
+    throw new Error(`Base directory does not exist: ${baseDir}`);
+  }
 
-    if (!fs.existsSync(baseDir)) {
-        throw new Error(`Base directory does not exist: ${baseDir}`);
-    }
+  skillCache.set(skillName, {
+    name: skillName,
+    baseDir,
+    loadedAt: Date.now(),
+  });
+  saveCache();
 
-    skillCache.set(skillName, {
-        name: skillName,
-        baseDir,
-        loadedAt: Date.now()
-    });
-
-    saveCache();
-
-    return {
-        skillName,
-        baseDir,
-        rawOutput: output
-    };
+  return { skillName, baseDir, rawOutput: output };
 }
 
 /* -------------------------------------------------- */
@@ -90,111 +78,171 @@ function loadSkillViaOpenSkills(skillName) {
 /* -------------------------------------------------- */
 
 const server = new Server(
-    {
-        name: "openskills-mcp",
-        version: "1.0.0"
-    },
-    {
-        capabilities: {
-            tools: {}
-        }
-    }
+  { name: "openskills-mcp", version: "1.0.0" },
+  { capabilities: { tools: {} } }
 );
 
 /* -------------------------------------------------- */
 /* List tools */
 /* -------------------------------------------------- */
 
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-        tools: [
-            {
-                name: "load_skill",
-                description:
-                    "Read a Skill and return its documentation and base directory",
-                inputSchema: {
-                    type: "object",
-                    properties: {
-                        skill_name: {
-                            type: "string",
-                            description: "Skill name (e.g. chrome-devtools)"
-                        }
-                    },
-                    required: ["skill_name"]
-                }
-            }
-        ]
-    };
-});
+server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  tools: [
+    {
+      name: "load_skill",
+      description:
+        "Read an OpenSkill using `openskills read` and return its base directory",
+      inputSchema: {
+        type: "object",
+        properties: {
+          skill_name: {
+            type: "string",
+            description: "Skill name (e.g. chrome-devtools)",
+          },
+        },
+        required: ["skill_name"],
+      },
+    },
+    {
+      name: "run_cmd",
+      description: "Run a shell command and return stdout / stderr",
+      inputSchema: {
+        type: "object",
+        properties: {
+          code: {
+            type: "string",
+            description: "Shell command to execute",
+          },
+        },
+        required: ["code"],
+      },
+    },
+  ],
+}));
 
 /* -------------------------------------------------- */
 /* Call tool */
 /* -------------------------------------------------- */
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    try {
-        if (request.params.name !== "load_skill") {
-            throw new Error(`Unknown tool: ${request.params.name}`);
-        }
+  try {
+    const { name, arguments: args } = request.params;
 
-        const { skill_name } = request.params.arguments;
-        const { skillName, baseDir, rawOutput } =
-            loadSkillViaOpenSkills(skill_name);
+    /* ---------- load_skill ---------- */
+    if (name === "load_skill") {
+      const { skill_name } = args;
+      const { skillName, baseDir, rawOutput } =
+        loadSkillViaOpenSkills(skill_name);
 
-        return {
-            content: [
-                {
-                    type: "text",
-                    text: `
+      return {
+        content: [
+          {
+            type: "text",
+            text: `
 ========================================
 OPEN SKILL LOADED
 ========================================
 
-Skill name:
+Skill:
   ${skillName}
 
 (IMPORTANT) BASE_DIR:
   ${baseDir}
 
 ----------------------------------------
-INSTRUCTIONS FOR THE AI ASSISTANT
+INSTRUCTIONS FOR THE AI
 ----------------------------------------
 
-You MUST do the following:
+1. Treat BASE_DIR as canonical.
+2. Remember it for the rest of the conversation.
+3. ALWAYS use absolute paths.
 
-1. Treat the path above as the canonical BASE_DIR for this skill.
-2. Remember this base directory for the remainder of the conversation.
-3. ALWAYS execute scripts using an absolute path.
+Correct:
+  node "${baseDir}/scripts/<script>.js"
 
-Correct pattern:
-  node "<BASE_DIR>/scripts/<script>.js" [args...]
-
-Incorrect patterns (DO NOT USE):
-  cd <BASE_DIR>/scripts && node script.js
+Incorrect:
   node script.js
-  node ./scripts/script.js
-4. DO NOT reload this skill unless the user explicitly asks to reload it.
+  cd scripts && node script.js
 
 ----------------------------------------
-RAW OUTPUT FROM openskills
+RAW openskills OUTPUT
 ----------------------------------------
 
 ${rawOutput}
-`
-                }
-            ]
-        };
-    } catch (err) {
-        return {
+`,
+          },
+        ],
+      };
+    }
+
+    /* ---------- run_cmd ---------- */
+    if (name === "run_cmd") {
+      const { code } = args;
+
+      console.error(`[CMD] ${code}`);
+
+      return await new Promise((resolve) => {
+        let stdout = "";
+        let stderr = "";
+
+        const child = spawn(code, {
+          shell: true,
+          env: process.env,
+          windowsHide: true,
+        });
+
+        const timeout = setTimeout(() => {
+          child.kill();
+          resolve({
             isError: true,
             content: [
+              {
+                type: "text",
+                text: `Command timed out after 60s\n\nSTDOUT:\n${stdout}\n\nSTDERR:\n${stderr}`,
+              },
+            ],
+          });
+        }, 60000);
+
+        child.stdout.on("data", (d) => (stdout += d.toString()));
+        child.stderr.on("data", (d) => (stderr += d.toString()));
+
+        child.on("close", (code) => {
+          clearTimeout(timeout);
+          if (code !== 0) {
+            resolve({
+              isError: true,
+              content: [
                 {
-                    type: "text",
-                    text: `Error: ${err.message}`
-                }
-            ]
-        };
+                  type: "text",
+                  text: `Exit code: ${code}\n\nSTDERR:\n${stderr}\n\nSTDOUT:\n${stdout}`,
+                },
+              ],
+            });
+          } else {
+            resolve({
+              content: [{ type: "text", text: stdout || "(no output)" }],
+            });
+          }
+        });
+
+        child.on("error", (err) => {
+          clearTimeout(timeout);
+          resolve({
+            isError: true,
+            content: [{ type: "text", text: err.message }],
+          });
+        });
+      });
     }
+
+    throw new Error(`Unknown tool: ${name}`);
+  } catch (err) {
+    return {
+      isError: true,
+      content: [{ type: "text", text: `Error: ${err.message}` }],
+    };
+  }
 });
 
 /* -------------------------------------------------- */
@@ -203,5 +251,3 @@ ${rawOutput}
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-
-console.error("[Server] OpenSkills MCP Server running (stdio)");
