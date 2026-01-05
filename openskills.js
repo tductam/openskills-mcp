@@ -153,7 +153,9 @@ Skill:
 INSTRUCTIONS FOR THE AI
 ----------------------------------------
 
-1. Treat BASE_DIR as canonical.
+You MUST do the following:
+
+1. Treat BASE_DIR as canonical for this skill.
 2. Remember it for the rest of the conversation.
 3. ALWAYS use absolute paths.
 
