@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * OpenSkills MCP Server (Minimal + run_cmd)
+ * OpenSkills MCP Server (Minimal + execute_skill)
  *
  * - load_skill: uses `openskills read <skill>`
- * - run_cmd: execute shell command and return stdout/stderr
+ * - execute_skill: execute skill scripts via shell command and return stdout/stderr
  */
 
 import fs from "fs";
@@ -104,8 +104,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
-      name: "run_cmd",
-      description: "Run a shell command and return stdout / stderr",
+      name: "execute_skill",
+      description: "Execute skill scripts via shell command and return stdout/stderr",
       inputSchema: {
         type: "object",
         properties: {
@@ -146,7 +146,7 @@ OPEN SKILL LOADED
 Skill:
   ${skillName}
 
-(IMPORTANT) BASE_DIR:
+(IMPORTANT) SKILL_BASE_DIR:
   ${baseDir}
 
 ----------------------------------------
@@ -155,7 +155,7 @@ INSTRUCTIONS FOR THE AI
 
 You MUST do the following:
 
-1. Treat BASE_DIR as canonical for this skill.
+1. Treat SKILL_BASE_DIR as canonical for this skill.
 2. Remember it for the rest of the conversation.
 3. ALWAYS use absolute paths.
 
@@ -177,8 +177,8 @@ ${rawOutput}
       };
     }
 
-    /* ---------- run_cmd ---------- */
-    if (name === "run_cmd") {
+    /* ---------- execute_skill ---------- */
+    if (name === "execute_skill") {
       const { code } = args;
 
       console.error(`[CMD] ${code}`);
