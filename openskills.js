@@ -58,10 +58,12 @@ function loadSkillViaOpenSkills(skillName) {
     throw new Error("Could not parse Base directory from openskills output");
   }
 
-  const baseDir = match[1].trim();
+  const baseDir = match[1].trim().replace(/\\/g, '/');
   if (!fs.existsSync(baseDir)) {
     throw new Error(`Base directory does not exist: ${baseDir}`);
   }
+  let processedOutput = output;
+  processedOutput = processedOutput.replace(/^\s*Reading:[\s\S]+?Base directory:[\s\S]+?---\r?\n/, '');
 
   skillCache.set(skillName, {
     name: skillName,
@@ -70,7 +72,7 @@ function loadSkillViaOpenSkills(skillName) {
   });
   saveCache();
 
-  return { skillName, baseDir, rawOutput: output };
+  return { skillName, baseDir, rawOutput: processedOutput.trim() };
 }
 
 /* -------------------------------------------------- */
