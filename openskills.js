@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * OpenSkills MCP Server (Minimal + execute_skill)
- *
- * - load_skill: uses `openskills read <skill>`
- * - execute_skill: execute skill scripts via shell command and return stdout/stderr
+ * Skills MCP Server
+ * - list_skills: list all available skills with name, description, location
+ * - load_skill: load full skill content from SKILL.md
+ * - execute_skill: execute skill scripts via shell command
  */
 
 import fs from "fs";
@@ -19,10 +19,139 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 /* -------------------------------------------------- */
+/* Helper: Get skills directories in priority order */
+/* -------------------------------------------------- */
+
+function getSearchDirs() {
+  const cwd = process.cwd();
+  const home = os.homedir();
+
+  return [
+    path.join(cwd, ".agent", "skills"),      // project universal
+    path.join(home, ".agent", "skills"),     // global universal
+    path.join(cwd, ".claude", "skills"),     // project
+    path.join(home, ".claude", "skills"),    // global
+  ].filter(dir => fs.existsSync(dir));
+}
+
+/* -------------------------------------------------- */
+/* Helper: Extract YAML frontmatter from SKILL.md */
+/* -------------------------------------------------- */
+
+function extractYamlField(content, field) {
+  const match = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (!match) return null;
+
+  const yaml = match[1];
+  const fieldRegex = new RegExp(`^${field}:\\s*(.+)$`, "m");
+  const fieldMatch = yaml.match(fieldRegex);
+
+  return fieldMatch ? fieldMatch[1].trim() : null;
+}
+
+/* -------------------------------------------------- */
+/* Core: Find all skills in a specific directory */
+/* -------------------------------------------------- */
+
+function findSkillsInDir(skillsDir) {
+  // Expand ~ to home directory
+  const expandedDir = skillsDir.startsWith("~")
+    ? path.join(os.homedir(), skillsDir.slice(1))
+    : skillsDir;
+
+  // Resolve to absolute path
+  const absoluteDir = path.resolve(expandedDir);
+
+  if (!fs.existsSync(absoluteDir)) {
+    throw new Error(`Skills directory does not exist: ${absoluteDir}`);
+  }
+
+  const skills = [];
+
+  try {
+    const entries = fs.readdirSync(absoluteDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+
+      const skillName = entry.name;
+      const skillPath = path.join(absoluteDir, skillName).replace(/\\/g, '/');
+      const skillMdPath = path.join(skillPath, "SKILL.md").replace(/\\/g, '/');
+
+      // Check if SKILL.md exists
+      if (!fs.existsSync(skillMdPath)) continue;
+
+      try {
+        const content = fs.readFileSync(skillMdPath, "utf-8");
+        const name = extractYamlField(content, "name") || skillName;
+        const description = extractYamlField(content, "description") || "";
+
+        skills.push({
+          name,
+          description,
+          path: skillPath,
+        });
+      } catch (err) {
+        console.error(`[Warn] Failed to read ${skillMdPath}:`, err.message);
+      }
+    }
+  } catch (err) {
+    throw new Error(`Failed to read directory ${absoluteDir}: ${err.message}`);
+  }
+
+  return skills;
+}
+
+/* -------------------------------------------------- */
+/* Core: Find specific skill in specific directory */
+/* -------------------------------------------------- */
+
+function findSkillInDir(skillName, skillsDir) {
+  // Expand ~ to home directory
+  const expandedDir = skillsDir.startsWith("~")
+    ? path.join(os.homedir(), skillsDir.slice(1))
+    : skillsDir;
+
+  // Resolve to absolute path
+  const absoluteDir = path.resolve(expandedDir);
+
+  const skillPath = path.join(absoluteDir, skillName).replace(/\\/g, '/');
+  const skillMdPath = path.join(skillPath, "SKILL.md").replace(/\\/g, '/');
+
+  if (fs.existsSync(skillMdPath)) {
+    return { skillPath, skillMdPath };
+  }
+
+  return null;
+}
+
+/* -------------------------------------------------- */
+/* Core: Load skill from specific directory */
+/* -------------------------------------------------- */
+
+function loadSkillFromDir(skillName, skillsDir) {
+  console.error(`[Load] ${skillName} from ${skillsDir}`);
+
+  const found = findSkillInDir(skillName, skillsDir);
+  if (!found) {
+    throw new Error(`Skill "${skillName}" not found in: ${skillsDir}`);
+  }
+
+  const { skillPath, skillMdPath } = found;
+  const content = fs.readFileSync(skillMdPath, "utf-8");
+
+  return {
+    skillName,
+    baseDir: skillPath,
+    content: content.trim(),
+  };
+}
+
+/* -------------------------------------------------- */
 /* Simple local cache (optional) */
 /* -------------------------------------------------- */
 
-const CACHE_FILE = path.join(os.homedir(), ".openskills-mcp-cache.json");
+const CACHE_FILE = path.join(os.homedir(), ".skills-mcp-cache.json");
 let skillCache = new Map();
 
 if (fs.existsSync(CACHE_FILE)) {
@@ -42,45 +171,11 @@ function saveCache() {
 }
 
 /* -------------------------------------------------- */
-/* Core: load skill via openskills CLI */
-/* -------------------------------------------------- */
-
-function loadSkillViaOpenSkills(skillName) {
-  console.error(`[Load] openskills read ${skillName}`);
-
-  const output = execSync(`openskills read ${skillName}`, {
-    encoding: "utf-8",
-    maxBuffer: 10 * 1024 * 1024,
-  });
-
-  const match = output.match(/^Base directory:\s*(.+)$/m);
-  if (!match) {
-    throw new Error("Could not parse Base directory from openskills output");
-  }
-
-  const baseDir = match[1].trim().replace(/\\/g, '/');
-  if (!fs.existsSync(baseDir)) {
-    throw new Error(`Base directory does not exist: ${baseDir}`);
-  }
-  let processedOutput = output;
-  processedOutput = processedOutput.replace(/^\s*Reading:[\s\S]+?Base directory:[\s\S]+?---\r?\n/, '');
-
-  skillCache.set(skillName, {
-    name: skillName,
-    baseDir,
-    loadedAt: Date.now(),
-  });
-  saveCache();
-
-  return { skillName, baseDir, rawOutput: processedOutput.trim() };
-}
-
-/* -------------------------------------------------- */
 /* MCP Server */
 /* -------------------------------------------------- */
 
 const server = new Server(
-  { name: "openskills-mcp", version: "1.0.0" },
+  { name: "skills-mcp", version: "1.1.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -91,9 +186,24 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
+      name: "list_skills",
+      description:
+        "List all Skills in a specific directory with name, description, and location",
+      inputSchema: {
+        type: "object",
+        properties: {
+          skills_dir: {
+            type: "string",
+            description: "Path to skills directory (e.g. /path/to/.claude/skills or ~/.agent/skills)",
+          },
+        },
+        required: ["skills_dir"],
+      },
+    },
+    {
       name: "load_skill",
       description:
-        "Read an OpenSkill using `openskills read` and return its base directory",
+        "Load full skill content from SKILL.md in a specific directory",
       inputSchema: {
         type: "object",
         properties: {
@@ -101,8 +211,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: "string",
             description: "Skill name (e.g. chrome-devtools)",
           },
+          skills_dir: {
+            type: "string",
+            description: "Path to skills directory (same path used in list_skills)",
+          },
         },
-        required: ["skill_name"],
+        required: ["skill_name", "skills_dir"],
       },
     },
     {
@@ -130,11 +244,55 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     const { name, arguments: args } = request.params;
 
+    /* ---------- list_skills ---------- */
+    if (name === "list_skills") {
+      const { skills_dir } = args;
+
+      const skills = findSkillsInDir(skills_dir);
+
+      if (skills.length === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `No skills found in: ${path.resolve(skills_dir.startsWith("~") ? path.join(os.homedir(), skills_dir.slice(1)) : skills_dir)}\n\nMake sure the directory contains skill folders with SKILL.md files.`,
+            },
+          ],
+        };
+      }
+
+      // Format as simple list
+      let output = `Available Skills in ${path.resolve(skills_dir.startsWith("~") ? path.join(os.homedir(), skills_dir.slice(1)) : skills_dir)} (${skills.length}):\n\n`;
+
+      for (const skill of skills) {
+        output += `Skill: ${skill.name}\n`;
+        output += `Description: ${skill.description}\n`;
+        output += `\n`;
+      }
+
+      output += "Use 'load_skill' with the skill name to load full instructions.";
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: output,
+          },
+        ],
+      };
+    }
+
     /* ---------- load_skill ---------- */
     if (name === "load_skill") {
-      const { skill_name } = args;
-      const { skillName, baseDir, rawOutput } =
-        loadSkillViaOpenSkills(skill_name);
+      const { skill_name, skills_dir } = args;
+      const { skillName, baseDir, content } = loadSkillFromDir(skill_name, skills_dir);
+
+      skillCache.set(skillName, {
+        name: skillName,
+        baseDir,
+        loadedAt: Date.now(),
+      });
+      saveCache();
 
       return {
         content: [
@@ -142,7 +300,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: "text",
             text: `
 ========================================
-OPEN SKILL LOADED
+SKILL LOADED
 ========================================
 
 Skill:
@@ -169,10 +327,10 @@ Incorrect:
   cd scripts && node script.js
 
 ----------------------------------------
-RAW openskills OUTPUT
+SKILL CONTENT
 ----------------------------------------
 
-${rawOutput}
+${content}
 `,
           },
         ],
