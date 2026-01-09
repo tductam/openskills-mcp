@@ -16,7 +16,7 @@ You have access to a local skill library via MCP tools: `list_skills`, `load_ski
 - Reuse this remembered information freely instead of calling `list_skills` or `load_skill` again for the same skill.
 - Only call `list_skills` when you need to discover new or additional skills.
 - Only call `load_skill` when you need the details of a skill you haven't used yet or need to refresh.
-- When executing any skill, always construct commands using absolute paths by prefixing internal files/scripts with the known `SKILL_BASE_DIR`/ (e.g., `node "{SKILL_BASE_DIR}/scripts/index.js" ...`).
+- When executing any skill, always construct commands using absolute paths by prefixing internal files/scripts with the known `SKILL_BASE_DIR`/ .
 - Never use relative paths or guess file locations.
 - Error Handling: If a tool call fails (e.g., file not found or invalid path), verify skill name, directory, and paths before retrying. If needed, refresh with `load_skill`.
 
