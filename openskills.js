@@ -18,21 +18,6 @@ import {
   CallToolRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-/* -------------------------------------------------- */
-/* Helper: Get skills directories in priority order */
-/* -------------------------------------------------- */
-
-function getSearchDirs() {
-  const cwd = process.cwd();
-  const home = os.homedir();
-
-  return [
-    path.join(cwd, ".agent", "skills"),      // project universal
-    path.join(home, ".agent", "skills"),     // global universal
-    path.join(cwd, ".claude", "skills"),     // project
-    path.join(home, ".claude", "skills"),    // global
-  ].filter(dir => fs.existsSync(dir));
-}
 
 /* -------------------------------------------------- */
 /* Helper: Extract YAML frontmatter from SKILL.md */
@@ -83,6 +68,10 @@ function findSkillsInDir(skillsDir) {
 
       try {
         const content = fs.readFileSync(skillMdPath, "utf-8");
+        const rawDescription = extractYamlField(content, "description");
+        if (!rawDescription || rawDescription.trim().length === 0) {
+          continue; 
+        }
         const name = extractYamlField(content, "name") || skillName;
         const description = extractYamlField(content, "description") || "";
 
@@ -302,34 +291,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 ========================================
 SKILL LOADED
 ========================================
-
 Skill:
   ${skillName}
-
 (IMPORTANT) SKILL_BASE_DIR:
   ${baseDir}
-
 ----------------------------------------
 INSTRUCTIONS FOR THE AI
 ----------------------------------------
-
 You MUST do the following:
-
 1. Treat SKILL_BASE_DIR as canonical for this skill.
 2. Remember it for the rest of the conversation.
 3. ALWAYS use absolute paths.
-
 Correct:
-  node "${baseDir}/scripts/<script>.js"
-
+  node "${baseDir}/scripts/<script>.js" <command> <args>
 Incorrect:
   node script.js
   cd scripts && node script.js
-
 ----------------------------------------
 SKILL CONTENT
 ----------------------------------------
-
 ${content}
 `,
           },
