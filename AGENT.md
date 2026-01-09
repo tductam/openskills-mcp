@@ -1,5 +1,5 @@
 <configuration>
-  <default_skills_dir>D:\skills</default_skills_dir>
+  <default_skills_dir>path/to/file</default_skills_dir>
 </configuration>
 <tool_usage_policy>
 You have access to MCP tools: `list_skills`, `load_skill`, `execute_skill`.
@@ -15,7 +15,7 @@ You have access to MCP tools: `list_skills`, `load_skill`, `execute_skill`.
    - Call `list_skills` ONLY to discover unknown skills.
    - Call `load_skill` ONLY for new skills or to refresh details.
 3. TECHNICAL SYNTAX (CRITICAL):
-   - ALWAYS use absolute paths: `node "{SKILL_BASE_DIR}/scripts/index.js" ...`
+   - ALWAYS use absolute paths.
    - On execution failure (e.g., file not found): Verify path in memory, then retry or refresh skill.
 
 **DECISION LOOP (Internal Thinking):**
