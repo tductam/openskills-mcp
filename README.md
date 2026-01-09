@@ -9,9 +9,9 @@
 
 ## Instruction
 
-Define skill file path in the instruction
-Take instruction from AGENT.md
-Change file path here
+Define skill file path in the instruction.
+Take instruction from AGENT.md.
+Change file path here:
 ```
 <configuration>
   <default_skills_dir>path/to/skill</default_skills_dir>
