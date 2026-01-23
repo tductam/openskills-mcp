@@ -288,28 +288,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           {
             type: "text",
             text: `
-========================================
-SKILL LOADED
-========================================
-Skill:
-  ${skillName}
 (IMPORTANT) SKILL_BASE_DIR:
   ${baseDir}
-----------------------------------------
-INSTRUCTIONS FOR THE AI
-----------------------------------------
-You MUST do the following:
-1. Treat SKILL_BASE_DIR as canonical for this skill.
-2. Remember it for the rest of the conversation.
-3. ALWAYS use absolute paths.
-Correct:
-  node "${baseDir}/scripts/<script>.js" <command> <args>
-Incorrect:
-  node script.js
-  cd scripts && node script.js
-----------------------------------------
-SKILL CONTENT
-----------------------------------------
+
 ${content}
 `,
           },
